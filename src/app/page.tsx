@@ -32,6 +32,8 @@ type ReceiptState = {
     totalAmount: string;
     currency: string;
   };
+  // NEW: Strict Event-Driven Audit Tracker
+  editedFields: string[]; 
 };
 
 // --- ENTERPRISE DATA SANITIZER ---
@@ -40,7 +42,6 @@ const sanitizeField = (fieldData: any): ExtractedField => {
   if (!fieldData) return { value: "", confidence: "low" };
   
   let val = fieldData.value;
-  
   if (
     val === null || 
     val === undefined || 
@@ -50,11 +51,11 @@ const sanitizeField = (fieldData: any): ExtractedField => {
   ) {
     val = "";
   } else {
-    val = String(val); // Force numbers to strings safely
+    val = String(val);
   }
 
   let conf = fieldData.confidence;
-  if (conf !== "high" && conf !== "medium") conf = "low"; // Fallback for invalid AI confidences
+  if (conf !== "high" && conf !== "medium") conf = "low";
 
   return { value: val, confidence: conf as "high" | "medium" | "low" };
 };
@@ -70,10 +71,8 @@ export default function Dashboard() {
     
     processed.forEach(r => {
       (["merchant", "date", "totalAmount", "currency"] as const).forEach(field => {
-        // IRONCLAD COMPARISON: Strips invisible spaces and forces exact string matching
-        const originalVal = String(r.originalData![field].value).trim();
-        const currentVal = String(r.currentData![field]).trim();
-        const isEdited = currentVal !== originalVal;
+        // NEW: Strictly check the audit tracker, ignore string comparisons
+        const isEdited = r.editedFields.includes(field);
         
         if (isEdited) {
           edited++;
@@ -99,6 +98,7 @@ export default function Dashboard() {
       id: Math.random().toString(36).substring(7),
       fileName: file.name,
       status: "loading" as const,
+      editedFields: [] // Initialize audit tracker
     }));
 
     setReceipts((prev) => [...newReceipts, ...prev]);
@@ -117,7 +117,6 @@ export default function Dashboard() {
           if (!response.ok) throw new Error("Failed to extract");
           const rawData = await response.json();
 
-          // Scrub the AI data through the sanitizer before it hits the UI
           const cleanData: AIResponse = {
             merchant: sanitizeField(rawData.merchant),
             date: sanitizeField(rawData.date),
@@ -138,6 +137,7 @@ export default function Dashboard() {
                       totalAmount: cleanData.totalAmount.value,
                       currency: cleanData.currency.value,
                     },
+                    editedFields: [] // Lock in zero edits on load
                   }
                 : r
             )
@@ -158,9 +158,22 @@ export default function Dashboard() {
     setReceipts((prev) =>
       prev.map((receipt) => {
         if (receipt.id === id && receipt.currentData) {
+          // NEW: Only trigger 'EDITED' if the user's keyboard input differs from the original AI data
+          const originalVal = String(receipt.originalData![field].value).trim();
+          const newVal = String(value).trim();
+          
+          let newEditedFields = [...receipt.editedFields];
+          
+          if (newVal !== originalVal && !newEditedFields.includes(field)) {
+            newEditedFields.push(field); // Add to audit trail
+          } else if (newVal === originalVal && newEditedFields.includes(field)) {
+            newEditedFields = newEditedFields.filter(f => f !== field); // Unflag if they revert it
+          }
+
           return {
             ...receipt,
             currentData: { ...receipt.currentData, [field]: value },
+            editedFields: newEditedFields
           };
         }
         return receipt;
@@ -181,12 +194,7 @@ export default function Dashboard() {
         Date: r.currentData!.date,
         TotalAmount: r.currentData!.totalAmount,
         Currency: r.currentData!.currency,
-        EditedManually: Object.keys(r.currentData!).some(
-          (key) => {
-            const field = key as keyof typeof r.currentData;
-            return String(r.currentData![field]).trim() !== String(r.originalData![field as keyof AIResponse].value).trim();
-          }
-        ) ? "Yes" : "No",
+        EditedManually: r.editedFields.length > 0 ? "Yes" : "No", // Clean CSV Logic
       }));
 
     if (successfulReceipts.length === 0) return alert("No valid data to export.");
@@ -206,11 +214,8 @@ export default function Dashboard() {
   const getFieldStyle = (receipt: ReceiptState, fieldKey: keyof AIResponse) => {
     if (!receipt.originalData || !receipt.currentData) return "";
     
-    // IRONCLAD COMPARISON FOR UI GLOW
-    const originalVal = String(receipt.originalData[fieldKey].value).trim();
-    const currentVal = String(receipt.currentData[fieldKey]).trim();
-    const isEdited = currentVal !== originalVal;
-    
+    // Check audit tracker instead of strings
+    const isEdited = receipt.editedFields.includes(fieldKey as string);
     if (isEdited) return "border-cyan-500/50 bg-cyan-950/20 text-cyan-50 focus:border-cyan-400 focus:ring-cyan-400/20";
     
     const confidence = receipt.originalData[fieldKey].confidence;
@@ -337,9 +342,7 @@ export default function Dashboard() {
               {receipt.status === "success" && receipt.currentData && (
                 <CardContent className="p-5 space-y-4">
                   {(["merchant", "date", "totalAmount", "currency"] as const).map((field) => {
-                    const originalVal = String(receipt.originalData![field].value).trim();
-                    const currentVal = String(receipt.currentData![field]).trim();
-                    const isEdited = currentVal !== originalVal;
+                    const isEdited = receipt.editedFields.includes(field); // Direct Audit Check
                     const confidence = receipt.originalData![field].confidence;
 
                     return (
