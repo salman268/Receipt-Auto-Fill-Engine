@@ -12,7 +12,7 @@ import {
   CheckCircle2, AlertTriangle, AlertCircle, PenLine, Cpu 
 } from "lucide-react";
 
-type ExtractedField = { value: string | null; confidence: "high" | "medium" | "low" };
+type ExtractedField = { value: string; confidence: "high" | "medium" | "low" };
 
 type AIResponse = {
   merchant: ExtractedField;
@@ -34,19 +34,43 @@ type ReceiptState = {
   };
 };
 
+// --- ENTERPRISE DATA SANITIZER ---
+// Intercepts AI hallucinations (like outputting the word "null") and forces strict types
+const sanitizeField = (fieldData: any): ExtractedField => {
+  if (!fieldData) return { value: "", confidence: "low" };
+  
+  let val = fieldData.value;
+  
+  if (
+    val === null || 
+    val === undefined || 
+    String(val).trim().toLowerCase() === "null" ||
+    String(val).trim().toLowerCase() === "n/a" ||
+    String(val).trim().toLowerCase() === "none"
+  ) {
+    val = "";
+  } else {
+    val = String(val); // Force numbers to strings safely
+  }
+
+  let conf = fieldData.confidence;
+  if (conf !== "high" && conf !== "medium") conf = "low"; // Fallback for invalid AI confidences
+
+  return { value: val, confidence: conf as "high" | "medium" | "low" };
+};
+
 export default function Dashboard() {
   const [receipts, setReceipts] = useState<ReceiptState[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
-  // --- ANALYTICS ENGINE (FIXED NULL HANDLING) ---
+  // --- ANALYTICS ENGINE ---
   const stats = useMemo(() => {
     let high = 0, medium = 0, low = 0, edited = 0;
     const processed = receipts.filter(r => r.status === "success" && r.currentData);
     
     processed.forEach(r => {
       (["merchant", "date", "totalAmount", "currency"] as const).forEach(field => {
-        const originalValue = r.originalData![field].value || ""; // Treat null as empty string
-        const isEdited = r.currentData![field] !== originalValue;
+        const isEdited = r.currentData![field] !== r.originalData![field].value;
         
         if (isEdited) {
           edited++;
@@ -88,7 +112,15 @@ export default function Dashboard() {
           });
 
           if (!response.ok) throw new Error("Failed to extract");
-          const data: AIResponse = await response.json();
+          const rawData = await response.json();
+
+          // Scrub the AI data through the sanitizer before it hits the UI
+          const cleanData: AIResponse = {
+            merchant: sanitizeField(rawData.merchant),
+            date: sanitizeField(rawData.date),
+            totalAmount: sanitizeField(rawData.totalAmount),
+            currency: sanitizeField(rawData.currency),
+          };
 
           setReceipts((prev) =>
             prev.map((r) =>
@@ -96,12 +128,12 @@ export default function Dashboard() {
                 ? {
                     ...r,
                     status: "success",
-                    originalData: data,
+                    originalData: cleanData,
                     currentData: {
-                      merchant: data.merchant?.value || "",
-                      date: data.date?.value || "",
-                      totalAmount: data.totalAmount?.value || "",
-                      currency: data.currency?.value || "",
+                      merchant: cleanData.merchant.value,
+                      date: cleanData.date.value,
+                      totalAmount: cleanData.totalAmount.value,
+                      currency: cleanData.currency.value,
                     },
                   }
                 : r
@@ -147,7 +179,7 @@ export default function Dashboard() {
         TotalAmount: r.currentData!.totalAmount,
         Currency: r.currentData!.currency,
         EditedManually: Object.keys(r.currentData!).some(
-          (key) => r.currentData![key as keyof typeof r.currentData] !== (r.originalData![key as keyof AIResponse].value || "")
+          (key) => r.currentData![key as keyof typeof r.currentData] !== r.originalData![key as keyof AIResponse].value
         ) ? "Yes" : "No",
       }));
 
@@ -164,13 +196,11 @@ export default function Dashboard() {
     document.body.removeChild(link);
   };
 
-  // --- DARK MODE STYLING ENGINE (FIXED NULL HANDLING) ---
+  // --- DARK MODE STYLING ENGINE ---
   const getFieldStyle = (receipt: ReceiptState, fieldKey: keyof AIResponse) => {
     if (!receipt.originalData || !receipt.currentData) return "";
     
-    const originalValue = receipt.originalData[fieldKey].value || "";
-    const isEdited = receipt.currentData[fieldKey] !== originalValue;
-    
+    const isEdited = receipt.currentData[fieldKey] !== receipt.originalData[fieldKey].value;
     if (isEdited) return "border-cyan-500/50 bg-cyan-950/20 text-cyan-50 focus:border-cyan-400 focus:ring-cyan-400/20";
     
     const confidence = receipt.originalData[fieldKey].confidence;
@@ -297,8 +327,7 @@ export default function Dashboard() {
               {receipt.status === "success" && receipt.currentData && (
                 <CardContent className="p-5 space-y-4">
                   {(["merchant", "date", "totalAmount", "currency"] as const).map((field) => {
-                    const originalValue = receipt.originalData![field].value || "";
-                    const isEdited = receipt.currentData![field] !== originalValue;
+                    const isEdited = receipt.currentData![field] !== receipt.originalData![field].value;
                     const confidence = receipt.originalData![field].confidence;
 
                     return (
