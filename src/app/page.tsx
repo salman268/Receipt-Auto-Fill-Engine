@@ -117,7 +117,7 @@ export default function Dashboard() {
     setIsUploading(false);
   };
 
-  const handleEdit = (id: string, field: keyof ReceiptState["currentData"], value: string) => {
+  const handleEdit = (id: string, field: "merchant" | "date" | "totalAmount" | "currency", value: string) => {
     setReceipts((prev) =>
       prev.map((receipt) => {
         if (receipt.id === id && receipt.currentData) {
