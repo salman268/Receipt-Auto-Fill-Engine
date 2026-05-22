@@ -38,14 +38,16 @@ export default function Dashboard() {
   const [receipts, setReceipts] = useState<ReceiptState[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
-  // --- ANALYTICS ENGINE ---
+  // --- ANALYTICS ENGINE (FIXED NULL HANDLING) ---
   const stats = useMemo(() => {
     let high = 0, medium = 0, low = 0, edited = 0;
     const processed = receipts.filter(r => r.status === "success" && r.currentData);
     
     processed.forEach(r => {
       (["merchant", "date", "totalAmount", "currency"] as const).forEach(field => {
-        const isEdited = r.currentData![field] !== r.originalData![field].value;
+        const originalValue = r.originalData![field].value || ""; // Treat null as empty string
+        const isEdited = r.currentData![field] !== originalValue;
+        
         if (isEdited) {
           edited++;
         } else {
@@ -145,7 +147,7 @@ export default function Dashboard() {
         TotalAmount: r.currentData!.totalAmount,
         Currency: r.currentData!.currency,
         EditedManually: Object.keys(r.currentData!).some(
-          (key) => r.currentData![key as keyof typeof r.currentData] !== r.originalData![key as keyof AIResponse].value
+          (key) => r.currentData![key as keyof typeof r.currentData] !== (r.originalData![key as keyof AIResponse].value || "")
         ) ? "Yes" : "No",
       }));
 
@@ -162,10 +164,13 @@ export default function Dashboard() {
     document.body.removeChild(link);
   };
 
-  // --- DARK MODE STYLING ENGINE ---
+  // --- DARK MODE STYLING ENGINE (FIXED NULL HANDLING) ---
   const getFieldStyle = (receipt: ReceiptState, fieldKey: keyof AIResponse) => {
     if (!receipt.originalData || !receipt.currentData) return "";
-    const isEdited = receipt.currentData[fieldKey] !== receipt.originalData[fieldKey].value;
+    
+    const originalValue = receipt.originalData[fieldKey].value || "";
+    const isEdited = receipt.currentData[fieldKey] !== originalValue;
+    
     if (isEdited) return "border-cyan-500/50 bg-cyan-950/20 text-cyan-50 focus:border-cyan-400 focus:ring-cyan-400/20";
     
     const confidence = receipt.originalData[fieldKey].confidence;
@@ -292,7 +297,8 @@ export default function Dashboard() {
               {receipt.status === "success" && receipt.currentData && (
                 <CardContent className="p-5 space-y-4">
                   {(["merchant", "date", "totalAmount", "currency"] as const).map((field) => {
-                    const isEdited = receipt.currentData![field] !== receipt.originalData![field].value;
+                    const originalValue = receipt.originalData![field].value || "";
+                    const isEdited = receipt.currentData![field] !== originalValue;
                     const confidence = receipt.originalData![field].confidence;
 
                     return (
