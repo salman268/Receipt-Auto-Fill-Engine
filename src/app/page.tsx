@@ -35,7 +35,7 @@ type ReceiptState = {
 };
 
 // --- ENTERPRISE DATA SANITIZER ---
-// Intercepts AI hallucinations (like outputting the word "null") and forces strict types
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sanitizeField = (fieldData: any): ExtractedField => {
   if (!fieldData) return { value: "", confidence: "low" };
   
@@ -70,7 +70,10 @@ export default function Dashboard() {
     
     processed.forEach(r => {
       (["merchant", "date", "totalAmount", "currency"] as const).forEach(field => {
-        const isEdited = r.currentData![field] !== r.originalData![field].value;
+        // IRONCLAD COMPARISON: Strips invisible spaces and forces exact string matching
+        const originalVal = String(r.originalData![field].value).trim();
+        const currentVal = String(r.currentData![field]).trim();
+        const isEdited = currentVal !== originalVal;
         
         if (isEdited) {
           edited++;
@@ -179,7 +182,10 @@ export default function Dashboard() {
         TotalAmount: r.currentData!.totalAmount,
         Currency: r.currentData!.currency,
         EditedManually: Object.keys(r.currentData!).some(
-          (key) => r.currentData![key as keyof typeof r.currentData] !== r.originalData![key as keyof AIResponse].value
+          (key) => {
+            const field = key as keyof typeof r.currentData;
+            return String(r.currentData![field]).trim() !== String(r.originalData![field as keyof AIResponse].value).trim();
+          }
         ) ? "Yes" : "No",
       }));
 
@@ -200,7 +206,11 @@ export default function Dashboard() {
   const getFieldStyle = (receipt: ReceiptState, fieldKey: keyof AIResponse) => {
     if (!receipt.originalData || !receipt.currentData) return "";
     
-    const isEdited = receipt.currentData[fieldKey] !== receipt.originalData[fieldKey].value;
+    // IRONCLAD COMPARISON FOR UI GLOW
+    const originalVal = String(receipt.originalData[fieldKey].value).trim();
+    const currentVal = String(receipt.currentData[fieldKey]).trim();
+    const isEdited = currentVal !== originalVal;
+    
     if (isEdited) return "border-cyan-500/50 bg-cyan-950/20 text-cyan-50 focus:border-cyan-400 focus:ring-cyan-400/20";
     
     const confidence = receipt.originalData[fieldKey].confidence;
@@ -327,7 +337,9 @@ export default function Dashboard() {
               {receipt.status === "success" && receipt.currentData && (
                 <CardContent className="p-5 space-y-4">
                   {(["merchant", "date", "totalAmount", "currency"] as const).map((field) => {
-                    const isEdited = receipt.currentData![field] !== receipt.originalData![field].value;
+                    const originalVal = String(receipt.originalData![field].value).trim();
+                    const currentVal = String(receipt.currentData![field]).trim();
+                    const isEdited = currentVal !== originalVal;
                     const confidence = receipt.originalData![field].confidence;
 
                     return (
