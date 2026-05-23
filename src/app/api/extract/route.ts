@@ -1,3 +1,4 @@
+export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
@@ -57,9 +58,10 @@ export async function POST(req: NextRequest) {
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error("GitHub API Error:", err);
-      throw new Error("Failed to fetch from GitHub API");
+      const errorText = await response.text();
+      console.error("🔥 GITHUB API REJECTED:", response.status, errorText);
+      console.error("🔑 TOKEN CHECK:", process.env.GITHUB_TOKEN ? "Token exists in Vercel" : "TOKEN IS MISSING IN VERCEL!");
+      throw new Error(`GitHub Error ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
