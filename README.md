@@ -73,7 +73,7 @@ GITHUB_TOKEN=your_github_token_here
 
 
 
-3. Boot the Server
+### 3. Boot the Server
 
 Start the Next.js development server:
 
